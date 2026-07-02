@@ -208,7 +208,7 @@ class SupabaseDatabase {
       
       const ALLOWED_FIELDS = [
         'displayName', 'email', 'bio', 'photoURL', 'nickname', 'tagline', 
-        'links', 'portfolioConfig', 'keywords', 'roles', 'passwordHash', 'salt'
+        'links', 'portfolioConfig', 'keywords', 'roles'
       ];
       const sanitized = {};
       for (const key of ALLOWED_FIELDS) {
@@ -229,6 +229,19 @@ class SupabaseDatabase {
       return data.users[idx];
     }
     return null;
+  }
+
+  async updateUserPassword(uid, salt, hash) {
+    const data = await this.ensureData();
+    const idx = data.users.findIndex(u => u.uid === uid);
+    if (idx !== -1) {
+      data.users[idx].salt = salt;
+      data.users[idx].passwordHash = hash;
+      this.usersByUid.set(uid, data.users[idx]);
+      await this.write(data);
+      return true;
+    }
+    return false;
   }
 
   async checkUsernameAvailable(username, excludeUid) {

@@ -356,6 +356,39 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ user: userProfile });
 });
 
+// POST /api/auth/change-password — change user's own password
+app.post('/api/auth/change-password', requireAuth, writeLimiter, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Current password and new password are required." });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: "New password must be at least 8 characters long." });
+    }
+    
+    const user = await db.getUser(req.user.uid);
+    if (!user || !user.passwordHash || !user.salt) {
+      return res.status(404).json({ error: "User or login configuration not found." });
+    }
+    
+    const isValid = verifyPassword(currentPassword, user.salt, user.passwordHash);
+    if (!isValid) {
+      return res.status(400).json({ error: "Invalid current password." });
+    }
+    
+    const { salt, hash } = hashPassword(newPassword);
+    const success = await db.updateUserPassword(req.user.uid, salt, hash);
+    if (success) {
+      res.json({ success: true, message: "Password updated successfully." });
+    } else {
+      res.status(500).json({ error: "Failed to update password." });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/auth/google
 app.post('/api/auth/google', authLimiter, strictMinuteLimiter, async (req, res) => {
   try {

@@ -2,23 +2,26 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { db } from './db.js';
 import { verifyCredentials } from '@supabase/server/core';
+import { kv } from '@vercel/kv';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.length < 64) {
   throw new Error('JWT_SECRET must be at least 64 characters');
 }
 
-// Hash password using native PBKDF2
+// Hash password using native PBKDF2 with 600,000 iterations
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 600000, 64, 'sha512').toString('hex');
   return { salt, hash };
 }
 
-// Verify password
+// Verify password supporting both new 600k iterations and legacy 1000 iterations fallback
 export function verifyPassword(password, salt, hash) {
-  const verifyHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return hash === verifyHash;
+  const verifyHashNew = crypto.pbkdf2Sync(password, salt, 600000, 64, 'sha512').toString('hex');
+  if (hash === verifyHashNew) return true;
+  const verifyHashOld = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+  return hash === verifyHashOld;
 }
 
 export function signToken(payload, expiresIn = '1h') {
@@ -33,19 +36,37 @@ export function signToken(payload, expiresIn = '1h') {
 
 const tokenBlacklist = new Set();
 
-export function blacklistToken(token) {
+export async function blacklistToken(token) {
   if (!token) return;
+  try {
+    if (process.env.KV_REST_API_URL) {
+      await kv.set(`blacklist:${token}`, '1', { ex: 3600 });
+    }
+  } catch (err) {
+    console.error('[AUTH] Failed to write to Vercel KV blacklist:', err.message);
+  }
+  // Local fallback
   tokenBlacklist.add(token);
-  // Auto-clean after 1 hour (the standard token TTL)
   setTimeout(() => {
     tokenBlacklist.delete(token);
   }, 60 * 60 * 1000);
 }
 
-export function verifyToken(token) {
-  if (tokenBlacklist.has(token)) {
-    return null;
+export async function isTokenBlacklisted(token) {
+  if (!token) return false;
+  if (tokenBlacklist.has(token)) return true;
+  try {
+    if (process.env.KV_REST_API_URL) {
+      const val = await kv.get(`blacklist:${token}`);
+      return !!val;
+    }
+  } catch (err) {
+    console.error('[AUTH] Failed to read from Vercel KV blacklist:', err.message);
   }
+  return false;
+}
+
+export function verifyToken(token) {
   try {
     return jwt.verify(token, JWT_SECRET, {
       algorithms: ['HS256'],
@@ -66,6 +87,12 @@ export async function authenticateToken(req, res, next) {
     req.user = null;
     return next();
   }
+
+  // Check token blacklist
+  if (await isTokenBlacklisted(token)) {
+    req.user = null;
+    return next();
+  }
   
   let uid = null;
   const decoded = verifyToken(token);
@@ -75,10 +102,12 @@ export async function authenticateToken(req, res, next) {
   } else {
     // Fallback: Verify as a direct Supabase JWT token using @supabase/server
     try {
-      const { data, error } = await verifyCredentials({ token, apikey: null }, { auth: 'user' });
-      if (data && data.userClaims && data.userClaims.email) {
-        const email = data.userClaims.email;
-        uid = `user-${email.split('@')[0]}`;
+      const apikey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const { data, error } = await verifyCredentials({ token, apikey }, { auth: 'user' });
+      if (data?.user?.id) {
+        uid = `user-${data.user.id}`;
+      } else if (data?.userClaims?.sub) {
+        uid = data.userClaims.sub;
       }
     } catch (err) {
       console.error("[AUTH] Supabase server token verification error:", err.message);
