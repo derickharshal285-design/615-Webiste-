@@ -4,9 +4,7 @@ import { Target } from 'lucide-react';
 
 export default function IntroDoor() {
   const [isOpen, setIsOpen] = useState(false);
-  const [isRemoved, setIsRemoved] = useState(() => {
-    return sessionStorage.getItem('615_intro_viewed') === 'true';
-  });
+  const [isRemoved, setIsRemoved] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -27,7 +25,6 @@ export default function IntroDoor() {
         // Trigger fade out around 9.5s (3.5s of playback) to avoid slow zoom/logo at the end
         if (videoRef.current.currentTime >= 9.5 || videoRef.current.ended) {
           setIsOpen(true);
-          sessionStorage.setItem('615_intro_viewed', 'true');
           
           // Completely remove it from DOM after the fade out transition (1.5s)
           setTimeout(() => {
