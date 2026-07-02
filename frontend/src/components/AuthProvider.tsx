@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import { Shield, Key, Mail, User, X, Cpu, AlertTriangle, Smartphone } from 'lucide-react';
 import { useCartStore } from '../store/cart';
 import { supabase } from '../lib/supabase';
+import { authFetch } from '../lib/authFetch';
 
 interface AuthContextType {
   user: any | null;
@@ -65,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const token = session.access_token;
 
-          const res = await fetch('/api/auth/sync', {
+          const res = await authFetch('/api/auth/sync', {
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
@@ -85,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         // Try to fetch current user profile using HTTP cookies
         try {
-          const res = await fetch('/api/auth/me', {
+          const res = await authFetch('/api/auth/me', {
             credentials: 'include'
           });
           if (res.ok) {
@@ -115,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user?.uid && userData?.roles?.includes('creator')) {
-      fetch(`/api/creators/owner/${user.uid}`)
+      authFetch(`/api/creators/owner/${user.uid}`)
         .then(res => res.json())
         .then(data => {
           if (data && data.id) {
@@ -135,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      fetch(`/api/users/${user.uid}/cart`)
+      authFetch(`/api/users/${user.uid}/cart`)
         .then(res => res.json())
         .then(data => {
           const dbItems = data.items || [];
@@ -163,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user || !cartSyncInitialized.current) return;
     if (cartSyncTimer.current) clearTimeout(cartSyncTimer.current);
     cartSyncTimer.current = setTimeout(() => {
-      fetch(`/api/users/${user.uid}/cart`, {
+      authFetch(`/api/users/${user.uid}/cart`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: cartItems })
@@ -211,7 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const session = authData.session;
 
       // Sync backend
-      const res = await fetch('/api/auth/sync', {
+      const res = await authFetch('/api/auth/sync', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -292,7 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const session = authData.session;
 
-      const res = await fetch('/api/auth/sync', {
+      const res = await authFetch('/api/auth/sync', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -351,7 +352,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateUserProfile = async (profileData: any) => {
     if (!user) return;
-    const res = await fetch(`/api/users/${user.uid}/profile`, {
+    const res = await authFetch(`/api/users/${user.uid}/profile`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(profileData)
@@ -367,7 +368,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSubmitting(true);
     setAuthError(null);
     try {
-      const res = await fetch('/api/auth/swap-identity', {
+      const res = await authFetch('/api/auth/swap-identity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ uid })
@@ -398,7 +399,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       await supabase.auth.signOut();
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await authFetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     } catch(err) {}
     setUser(null);
     setUserData(null);
@@ -473,7 +474,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthError(null);
         try {
           setSubmitting(true);
-          const res = await fetch('/api/auth/phone/send-otp', {
+          const res = await authFetch('/api/auth/phone/send-otp', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ phoneNumber })
@@ -489,7 +490,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         try {
            setSubmitting(true);
-           const res = await fetch('/api/auth/phone/verify-otp', {
+           const res = await authFetch('/api/auth/phone/verify-otp', {
              method: 'POST',
              headers: {'Content-Type': 'application/json'},
              body: JSON.stringify({ phoneNumber, otp: phoneOtp }),

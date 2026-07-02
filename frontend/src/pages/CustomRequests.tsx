@@ -23,6 +23,7 @@ import {
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { authFetch } from '../lib/authFetch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { dbService } from '../lib/db';
 import { useAuth } from '../components/AuthProvider';
@@ -95,7 +96,7 @@ export default function CustomRequests() {
   useEffect(() => {
     const fetchPosters = async () => {
       try {
-        const res = await fetch('/api/products');
+        const res = await authFetch('/api/products');
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data)) {
@@ -114,7 +115,7 @@ export default function CustomRequests() {
     if (!creatorId) return;
     const fetchTarget = async () => {
       try {
-        const res = await fetch(`/api/users/${creatorId}`);
+        const res = await authFetch(`/api/users/${creatorId}`);
         if (res.ok) {
           const data = await res.json();
           setTargetCreator(data);
@@ -130,7 +131,7 @@ export default function CustomRequests() {
 
     const fetchViewerRequests = async () => {
       try {
-        const res = await fetch(`/api/requests?viewerId=${user.uid}`);
+        const res = await authFetch(`/api/requests?viewerId=${user.uid}`);
         if (res.ok) {
           const data = await res.json();
           setViewerRequests(data);
@@ -143,7 +144,7 @@ export default function CustomRequests() {
     fetchViewerRequests();
     const interval = setInterval(fetchViewerRequests, 30000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, userData]);
 
   // Fetch creator's uploads & incoming requests
   useEffect(() => {
@@ -152,14 +153,14 @@ export default function CustomRequests() {
     const fetchCreatorData = async () => {
       try {
         // Fetch creator's uploads
-        const prodRes = await fetch('/api/products');
+        const prodRes = await authFetch('/api/products');
         if (prodRes.ok) {
           const allProds = await prodRes.json();
           setUploads(allProds.filter((p: any) => p.creatorId === user.uid));
         }
 
         // Fetch incoming requests
-        const reqRes = await fetch(`/api/requests?creatorId=${user.uid}`);
+        const reqRes = await authFetch(`/api/requests?creatorId=${user.uid}`);
         if (reqRes.ok) {
           const reqData = await reqRes.json();
           setIncomingRequests(reqData);
@@ -181,7 +182,7 @@ export default function CustomRequests() {
     if (!aiPrompt) return alert('Enter a design concept prompt first.');
     setIsAiLoading(true);
     try {
-      const res = await fetch('/api/ai/generate-specs', {
+      const res = await authFetch('/api/ai/generate-specs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: aiPrompt })
@@ -217,7 +218,7 @@ export default function CustomRequests() {
       const finalPrice = parseFloat(requestBudget) || 0;
       const finalTheme = 'Digital Service';
 
-      const res = await fetch('/api/requests', {
+      const res = await authFetch('/api/requests', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -260,7 +261,7 @@ export default function CustomRequests() {
 
   const handleUpdateRequestStatus = async (requestId: string, newStatus: string) => {
     try {
-      const res = await fetch(`/api/requests/${requestId}/status`, {
+      const res = await authFetch(`/api/requests/${requestId}/status`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -273,7 +274,7 @@ export default function CustomRequests() {
         setNotification({ type: 'success', message: `Request status updated to: ${newStatus}` });
         setTimeout(() => setNotification(null), 3000);
         // Refresh incoming requests
-        const reqRes = await fetch(`/api/requests?creatorId=${user?.uid}`);
+        const reqRes = await authFetch(`/api/requests?creatorId=${user?.uid}`);
         if (reqRes.ok) setIncomingRequests(await reqRes.json());
       } else {
         setNotification({ type: 'error', message: `Update failed: ${data.error}` });
@@ -290,7 +291,7 @@ export default function CustomRequests() {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/products', {
+      const res = await authFetch('/api/products', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -313,7 +314,7 @@ export default function CustomRequests() {
         setIsUploadModalOpen(false);
         setNewPoster({ title: '', price: '', imageUrl: '', entityType: 'Poster', description: '' });
         // Refresh uploads list
-        const prodRes = await fetch('/api/products');
+        const prodRes = await authFetch('/api/products');
         if (prodRes.ok) {
           const allProds = await prodRes.json();
           setUploads(allProds.filter((p: any) => p.creatorId === user.uid));
@@ -353,7 +354,7 @@ export default function CustomRequests() {
     if (!user) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/requests', {
+      const res = await authFetch('/api/requests', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -378,7 +379,7 @@ export default function CustomRequests() {
         setTimeout(() => setNotification(null), 4000);
         setBountyForm({ title: '', notes: '', budget: '', deadline: '14' });
         // Refresh
-        const myRes = await fetch(`/api/requests?viewerId=${user.uid}`);
+        const myRes = await authFetch(`/api/requests?viewerId=${user.uid}`);
         if (myRes.ok) setMyBounties((await myRes.json()).filter((r: any) => r.isBounty));
       } else {
         const d = await res.json();
@@ -396,7 +397,7 @@ export default function CustomRequests() {
     setIsSubmitting(true);
     try {
       // POST a bid as a sub-entry on the request
-      const res = await fetch(`/api/requests/${bountyId}/bid`, {
+      const res = await authFetch(`/api/requests/${bountyId}/bid`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -429,7 +430,7 @@ export default function CustomRequests() {
     if (!user) return;
     try {
       // Create a direct chat channel between buyer and creator
-      await fetch('/api/chats', {
+      await authFetch('/api/chats', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -444,7 +445,7 @@ export default function CustomRequests() {
         })
       });
       // Mark the request as accepted
-      await fetch(`/api/requests/${bountyId}/status`, {
+      await authFetch(`/api/requests/${bountyId}/status`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
