@@ -58,7 +58,9 @@ function AuthenticatedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const [showIntro, setShowIntro] = useState(true);
+  const [showIntro, setShowIntro] = useState(() => {
+    return window.location.pathname !== '/connect';
+  });
 
   return (
     <QueryClientProvider client={queryClient}>
