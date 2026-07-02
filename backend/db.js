@@ -240,6 +240,11 @@ class SupabaseDatabase {
     return Array.from(this.productsById.values());
   }
 
+  async getProduct(id) {
+    await this.ensureData();
+    return this.productsById.get(id) || null;
+  }
+
   async addProduct(product) {
     const validated = dbProductSchema.parse(product);
     const data = await this.ensureData();
@@ -286,12 +291,14 @@ class SupabaseDatabase {
       
       const VALID_TRANSITIONS = {
         'Payment_Pending': ['Order_Confirmed', 'Cancelled'],
-        'Order_Confirmed': ['Printing_Processing', 'Cancelled'],
+        'Order_Confirmed': ['Paid', 'Printing_Processing', 'Cancelled'],
+        'Paid': ['Printing_Processing', 'Cancelled', 'Refunded'],
         'Printing_Processing': ['Dispatched', 'Cancelled'],
         'Dispatched': ['Out_for_Delivery', 'Cancelled'],
         'Out_for_Delivery': ['Delivered', 'Cancelled'],
-        'Delivered': [],
-        'Cancelled': []
+        'Delivered': ['Refunded'],
+        'Cancelled': [],
+        'Refunded': []
       };
 
       if (order.status && VALID_TRANSITIONS[order.status] && !VALID_TRANSITIONS[order.status].includes(status)) {

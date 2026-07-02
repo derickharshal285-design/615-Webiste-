@@ -56,11 +56,17 @@ export const createProductSchema = z.object({
   creatorName: z.string().max(100).optional()
 }).strict();
 
-// 3. Order Schemas
 export const createOrderSchema = z.object({
   userId: z.string().min(1).max(256),
-  items: z.array(z.any()),
-  total: z.number().nonnegative(),
+  items: z.array(z.object({
+    id: z.string().min(1).max(256),
+    title: z.string().min(1).max(200),
+    price: z.number().positive(),
+    quantity: z.number().int().positive().optional().default(1),
+    imageUrl: z.string().max(2000).optional(),
+    creatorId: z.string().min(1).max(256)
+  })),
+  total: z.number().positive(),
   address: z.any().optional(),
   idempotencyKey: z.string().max(256).optional()
 }).strict();

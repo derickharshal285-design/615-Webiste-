@@ -735,9 +735,9 @@ app.get('/api/orders/user/:userId', requireAuth, async (req, res) => {
 // Validates: productId, title, price, entityType, metadata
 app.post('/api/orders', requireAuth, strictMinuteLimiter, validateBody(createOrderSchema), async (req, res) => {
   try {
-    const { userId, items, total, address, idempotencyKey } = req.body;
+    const { userId, items, address, idempotencyKey } = req.body;
     
-    if (!userId || !items || !total) {
+    if (!userId || !items || !Array.isArray(items)) {
       return res.status(400).json({ error: "Missing required order parameters." });
     }
 
@@ -748,10 +748,40 @@ app.post('/api/orders', requireAuth, strictMinuteLimiter, validateBody(createOrd
       }
     }
 
+    // VULN-7-A: Recalculate totals server-side using trusted database prices
+    let calculatedTotal = 0;
+    const validatedItems = [];
+    for (const item of items) {
+      const product = await db.getProduct(item.id);
+      if (!product) {
+        return res.status(400).json({ error: `Product ${item.id} not found.` });
+      }
+      const qty = Number(item.quantity) || 1;
+      if (qty <= 0) {
+        return res.status(400).json({ error: "Invalid product quantity." });
+      }
+      calculatedTotal += product.price * qty;
+      validatedItems.push({
+        id: product.id,
+        title: product.title,
+        price: product.price,
+        quantity: qty,
+        imageUrl: product.imageUrl,
+        creatorId: product.creatorId
+      });
+    }
+
+    // VULN-7-E: Calculate platform fee server-side
+    const PLATFORM_FEE_PERCENT = 0.10; // 10%
+    const platformFee = Math.round(calculatedTotal * PLATFORM_FEE_PERCENT * 100) / 100;
+    const creatorEarnings = calculatedTotal - platformFee;
+
     const newOrder = {
       userId,
-      items,
-      total: Number(total),
+      items: validatedItems,
+      total: calculatedTotal,
+      platformFee,
+      creatorEarnings,
       address: address || "Grid Coordinates Default",
       status: "Order_Confirmed",
       createdAt: new Date().toISOString()
@@ -1772,6 +1802,115 @@ app.post('/api/upload', requireAuth, writeLimiter, handleMulterUpload, async (re
   } catch (err) {
     console.error('[API Error]', { path: req.path, message: err.message });
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+// POST /api/orders/:id/refund — Ownership check, authorization check, state check (VULN-7-D)
+app.post('/api/orders/:id/refund', requireAuth, async (req, res) => {
+  try {
+    const data = await db.ensureData();
+    const order = data.orders.find(o => o.id === req.params.id);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+    
+    // Check ownership and admin privileges
+    if (order.userId !== req.user.uid && !req.user.roles?.includes('admin')) {
+      return res.status(403).json({ error: 'Unauthorized.' });
+    }
+    
+    // Validate refundable state
+    if (order.status !== 'Paid' && order.status !== 'Delivered') {
+      return res.status(400).json({ error: 'Order cannot be refunded in its current state.' });
+    }
+    
+    // Update status to Refunded
+    order.status = 'Refunded';
+    order.updatedAt = new Date().toISOString();
+    await db.write(data);
+
+    res.status(200).json({
+      success: true,
+      message: "Order refunded successfully.",
+      order
+    });
+  } catch (err) {
+    console.error('[API Error]', { path: req.path, message: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Cache processed webhook event IDs to prevent race condition / replay / double charge (VULN-7-C)
+const processedWebhookEvents = new Set();
+
+// POST /api/webhooks/stripe — Webhook signature verification (VULN-7-B) & Idempotency / replay checks (VULN-7-C)
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    const stripeModule = await import('stripe');
+    const Stripe = stripeModule.default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'dummy_key');
+    
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || 'dummy_secret');
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Idempotency: verify if already processed
+  if (processedWebhookEvents.has(event.id)) {
+    return res.json({ received: true });
+  }
+  processedWebhookEvents.add(event.id);
+
+  if (event.type === 'payment_intent.succeeded') {
+    const orderId = event.data.object.metadata.orderId;
+    const version = Number(event.data.object.metadata.version) || 1;
+    try {
+      await db.updateOrderStatus(orderId, 'Paid', version);
+    } catch (dbErr) {
+      console.error("[Webhook Database Error]", dbErr.message);
+    }
+  }
+  
+  res.json({ received: true });
+});
+
+// POST /api/webhooks/razorpay — Webhook signature verification & Idempotency / replay checks
+app.post('/api/webhooks/razorpay', express.raw({ type: 'application/json' }), async (req, res) => {
+  const signature = req.headers['x-razorpay-signature'];
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'dummy_secret';
+  
+  try {
+    const cryptoModule = await import('crypto');
+    const crypto = cryptoModule.default;
+    const bodyStr = req.body.toString();
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(bodyStr)
+      .digest('hex');
+      
+    if (expectedSignature !== signature) {
+      return res.status(400).send('Invalid signature.');
+    }
+    
+    const body = JSON.parse(bodyStr);
+    const eventId = body.event_id || body.id;
+    
+    // Idempotency: verify if already processed
+    if (processedWebhookEvents.has(eventId)) {
+      return res.json({ received: true });
+    }
+    processedWebhookEvents.add(eventId);
+
+    if (body.event === 'payment.captured') {
+      const orderId = body.payload.payment.entity.notes.orderId;
+      const version = Number(body.payload.payment.entity.notes.version) || 1;
+      await db.updateOrderStatus(orderId, 'Paid', version);
+    }
+    
+    res.json({ received: true });
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 });
 
