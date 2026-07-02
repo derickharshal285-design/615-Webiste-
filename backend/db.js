@@ -291,13 +291,14 @@ class SupabaseDatabase {
       
       const VALID_TRANSITIONS = {
         'Payment_Pending': ['Order_Confirmed', 'Cancelled'],
-        'Order_Confirmed': ['Paid', 'Printing_Processing', 'Cancelled'],
-        'Paid': ['Printing_Processing', 'Cancelled', 'Refunded'],
+        'Order_Confirmed': ['Paid', 'Cancelled'],
+        'Paid': ['Printing_Processing', 'Cancelled', 'Refund_Processing'],
         'Printing_Processing': ['Dispatched', 'Cancelled'],
         'Dispatched': ['Out_for_Delivery', 'Cancelled'],
         'Out_for_Delivery': ['Delivered', 'Cancelled'],
-        'Delivered': ['Refunded'],
+        'Delivered': ['Refund_Processing'],
         'Cancelled': [],
+        'Refund_Processing': ['Refunded'],
         'Refunded': []
       };
 
@@ -342,11 +343,20 @@ class SupabaseDatabase {
     return newRequest;
   }
 
-  async updateRequestStatus(id, status) {
+  async updateRequestStatus(id, status, expectedVersion) {
     const data = await this.ensureData();
     const idx = data.requests.findIndex(r => r.id === id);
     if (idx !== -1) {
+      const request = data.requests[idx];
+      const currentVersion = request.version || 1;
+      if (expectedVersion !== undefined && currentVersion !== expectedVersion) {
+        throw new Error(`Conflict error: Version mismatch. Expected ${expectedVersion} but got ${currentVersion}.`);
+      }
+      
       data.requests[idx].status = status;
+      data.requests[idx].version = currentVersion + 1;
+      data.requests[idx].updatedAt = new Date().toISOString();
+      
       this.requestsById.set(id, data.requests[idx]);
       await this.write(data);
       return data.requests[idx];
@@ -374,13 +384,13 @@ class SupabaseDatabase {
   async getWishlist(userId) {
     const data = await this.ensureData();
     if (!data.wishlists) data.wishlists = {};
-    return data.wishlists[userId] || { items: [], isPublic: true };
+    return data.wishlists[userId] || { items: [], isPublic: false };
   }
 
   async updateWishlist(userId, items, isPublic) {
     const data = await this.ensureData();
     if (!data.wishlists) data.wishlists = {};
-    const current = data.wishlists[userId] || { items: [], isPublic: true };
+    const current = data.wishlists[userId] || { items: [], isPublic: false };
     data.wishlists[userId] = {
       items: items !== undefined ? items : current.items,
       isPublic: isPublic !== undefined ? isPublic : current.isPublic
@@ -607,6 +617,7 @@ class SupabaseDatabase {
   }
 
   async canUserReview(userId, creatorId) {
+    if (userId === creatorId) return false;
     const data = await this.ensureData();
     if (!data.orders) return false;
     

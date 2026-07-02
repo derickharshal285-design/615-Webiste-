@@ -940,6 +940,20 @@ app.put('/api/orders/:id/status', requireAuth, writeLimiter, validateBody(update
       return res.status(403).json({ error: "You are not authorized to update this order's status." });
     }
 
+    // VULN-9-B: Enforce role-based state transitions
+    const isShippingTransition = ['Printing_Processing', 'Dispatched', 'Out_for_Delivery'].includes(status);
+    if (isShippingTransition && !isCreator && !isAdmin) {
+      return res.status(403).json({ error: "Only the creator/seller can update shipping status." });
+    }
+    if (status === 'Delivered' && !isBuyer && !isAdmin) {
+      return res.status(403).json({ error: "Only the buyer can confirm order delivery." });
+    }
+
+    // VULN-9-G: Audit log admin actions
+    if (isAdmin) {
+      console.log(`[ADMIN AUDIT LOG] Admin user ${req.user.uid} updated order ${id} status to ${status}`);
+    }
+
     const updated = await db.updateOrderStatus(id, status, version);
     if (updated) {
       res.json({ success: true, id, status, version: updated.version });
@@ -973,6 +987,18 @@ app.post('/api/requests', requireAuth, writeLimiter, validateBody(createRequestS
     
     if (!viewerId || !creatorId || !title) {
       return res.status(400).json({ error: "Missing required brief specifications." });
+    }
+
+    if (viewerId !== req.user.uid) {
+      return res.status(403).json({ error: "Cannot create a request on behalf of another user." });
+    }
+
+    // VULN-9-C: Count requests per user per day and reject if >= 5
+    const todayStr = new Date().toISOString().split('T')[0];
+    const userRequests = await db.getRequests({ viewerId: req.user.uid });
+    const todayRequests = userRequests.filter(r => r.createdAt && r.createdAt.startsWith(todayStr));
+    if (todayRequests.length >= 5) {
+      return res.status(429).json({ error: 'Daily request limit reached. Max 5 requests per day.' });
     }
 
     const newRequest = {
@@ -1023,11 +1049,11 @@ app.put('/api/users/:uid/profile', requireAuth, requireSelf('uid'), writeLimiter
 });
 
 // PUT /api/requests/:id/status — must be auth'd
-// Validates status update fields: status, acceptedCreatorId (optional)
+// Validates status update fields: status, acceptedCreatorId (optional), version (optional)
 app.put('/api/requests/:id/status', requireAuth, writeLimiter, validateBody(updateRequestStatusSchema), async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, acceptedCreatorId } = req.body;
+    const { status, acceptedCreatorId, version } = req.body;
     
     if (!status) {
       return res.status(400).json({ error: "Status is required." });
@@ -1045,13 +1071,18 @@ app.put('/api/requests/:id/status', requireAuth, writeLimiter, validateBody(upda
       return res.status(403).json({ error: "You are not authorized to update this request's status." });
     }
 
-    const updated = await db.updateRequestStatus(id, status);
+    // VULN-9-D: If accepting the bid, ensure request status is still Pending or Open
+    if (status === 'Accepted' && request.status !== 'Pending' && request.status !== 'Open') {
+      return res.status(400).json({ error: "Request has already been accepted or closed." });
+    }
+
+    const updated = await db.updateRequestStatus(id, status, version);
     if (updated) {
       // If accepting a bid, also store acceptedCreatorId
       if (acceptedCreatorId) {
         await db.updateRequest(id, { acceptedCreatorId });
       }
-      res.json({ success: true, id, status });
+      res.json({ success: true, id, status, version: updated.version });
     } else {
       res.status(404).json({ error: "Request not found." });
     }
@@ -1838,12 +1869,21 @@ app.post('/api/orders/:id/refund', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized.' });
     }
     
-    // Validate refundable state
+    // VULN-9-E: Validate refundable state and block duplicate refund calls
+    if (order.status === 'Refunded' || order.status === 'Refund_Processing') {
+      return res.status(400).json({ error: 'Refund already in progress or completed.' });
+    }
     if (order.status !== 'Paid' && order.status !== 'Delivered') {
       return res.status(400).json({ error: 'Order cannot be refunded in its current state.' });
     }
     
-    // Update status to Refunded
+    // Set status to Refund_Processing immediately to lock the state
+    order.status = 'Refund_Processing';
+    await db.write(data);
+
+    // [Refunding Process Trigger Here]
+
+    // Set to final Refunded status
     order.status = 'Refunded';
     order.updatedAt = new Date().toISOString();
     await db.write(data);
