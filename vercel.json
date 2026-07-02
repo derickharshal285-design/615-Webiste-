@@ -40,11 +40,8 @@
       }
     },
     {
-      "source": "/(.*)",
-      "destination": {
-        "type": "service",
-        "service": "frontend"
-      }
+      "source": "/((?!api/|assets/|manifest\\.webmanifest|sw\\.js|workbox-).*)/?",
+      "destination": "/index.html"
     }
   ],
   "services": {
