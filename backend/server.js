@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import csrf from 'csurf';
 import { db } from './db.js';
 import { hashPassword, verifyPassword, signToken, authenticateToken, requireAuth, requireAdmin, requireCreator, requireSelf, blacklistToken } from './auth.js';
 import { validateBody, firebaseAuthSchema, swapIdentitySchema, legacyRegisterSchema, legacyLoginSchema, createProductSchema, createOrderSchema, updateOrderStatusSchema, createRequestSchema, updateRequestStatusSchema, createBidSchema, createReviewSchema, updateProfileSchema, updateWishlistSchema, updateCartSchema, updatePortfolioSchema, overrideRoleSchema, checkUsernameSchema, followSchema, createApplicationSchema, updateApplicationStatusSchema, createMessageSchema, createChatSchema, submitScoreSchema, aiSearchSchema, createLogSchema, updateLogStatusSchema } from './validators.js';
@@ -101,12 +102,36 @@ app.use(cors({
     ? ['https://615-webiste.vercel.app'] 
     : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
 }));
 
 app.use(express.json());
 app.use(cookieParser());
+
+const csrfProtection = csrf({
+  cookie: {
+    key: '_csrf',
+    path: '/',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict'
+  }
+});
+
+// Expose CSRF token route
+app.get('/api/csrf-token', csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
+// Global CSRF Protection for state-changing requests
+app.use((req, res, next) => {
+  const method = req.method.toUpperCase();
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    return csrfProtection(req, res, next);
+  }
+  next();
+});
 
 // Sanitize 500 error messages to prevent leaking stack traces/internal details
 app.use((req, res, next) => {
