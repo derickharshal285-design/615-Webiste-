@@ -28,6 +28,31 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables');
 }
 
+export function redactPII(val) {
+  if (!val) return val;
+  if (typeof val === 'string') {
+    let sanitized = val.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
+    sanitized = sanitized.replace(/Bearer\s+[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/gi, 'Bearer [REDACTED_TOKEN]');
+    sanitized = sanitized.replace(/AIzaSy[A-Za-z0-9_-]{33}/g, '[REDACTED_API_KEY]');
+    return sanitized;
+  }
+  if (Array.isArray(val)) {
+    return val.map(item => redactPII(item));
+  }
+  if (typeof val === 'object') {
+    const copy = {};
+    for (const key of Object.keys(val)) {
+      if (['email', 'password', 'token', 'secret', 'salt', 'passwordhash', 'phone', 'address', 'authorization'].includes(key.toLowerCase())) {
+        copy[key] = '[REDACTED]';
+      } else {
+        copy[key] = redactPII(val[key]);
+      }
+    }
+    return copy;
+  }
+  return val;
+}
+
 class SupabaseDatabase {
   constructor() {
     try {
@@ -585,11 +610,12 @@ class SupabaseDatabase {
     await this.ensureData();
     if (!this.cachedData.system_logs) this.cachedData.system_logs = [];
     
-    // Ensure status is present
-    errorLog.status = errorLog.status || 'open';
+    // VULN-11-F: Redact sensitive information before logging
+    const redactedLog = redactPII(errorLog);
+    redactedLog.status = redactedLog.status || 'open';
     
     // Unshift to put newest first, limit to last 200 logs to prevent bloat
-    this.cachedData.system_logs.unshift(errorLog);
+    this.cachedData.system_logs.unshift(redactedLog);
     if (this.cachedData.system_logs.length > 200) {
       this.cachedData.system_logs = this.cachedData.system_logs.slice(0, 200);
     }

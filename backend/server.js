@@ -1431,10 +1431,12 @@ app.get('/api/users', requireAuth, requireAdmin, adminLimiter, async (req, res) 
     const limit = req.query.limit ? Math.min(100, parseInt(req.query.limit) || 20) : null;
 
     const users = await db.getAllUsers();
-    const safeUsers = users.map(u => {
-      const { salt, passwordHash, ...profile } = u;
-      return profile;
-    });
+    const safeUsers = users.map(u => ({
+      uid: u.uid,
+      displayName: u.displayName,
+      roles: u.roles || ['user'],
+      createdAt: u.createdAt
+    }));
 
     if (page !== null && limit !== null) {
       const start = (page - 1) * limit;
