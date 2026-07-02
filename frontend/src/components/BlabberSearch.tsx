@@ -4,6 +4,7 @@ import { X, Send, Sparkles, User, ShoppingBag, Package, Loader, ArrowUpRight } f
 import { Button } from './ui/button';
 import { Link } from 'react-router-dom';
 import DOMPurify from 'dompurify';
+import { authFetch } from '../lib/authFetch';
 
 interface BlabberSearchProps {
   isOpen: boolean;
@@ -56,7 +57,7 @@ export default function BlabberSearch({ isOpen, onClose }: BlabberSearchProps) {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/search/ai', {
+      const res = await authFetch('/api/search/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: userText })

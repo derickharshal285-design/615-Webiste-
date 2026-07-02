@@ -1545,18 +1545,32 @@ app.put('/api/users/:uid/portfolio', requireAuth, requireSelf('uid'), writeLimit
 
 
 
-// ------------------- AI CONVERSATIONAL SEARCH (BLABBER) -------------------
+// In-memory store for AI query daily limits
+const aiDailyUsageMap = new Map();
 
 // POST /api/search/ai
 // Validates search query: query
-app.post('/api/search/ai', aiSearchLimiter, validateBody(aiSearchSchema), async (req, res) => {
+app.post('/api/search/ai', requireAuth, aiSearchLimiter, validateBody(aiSearchSchema), async (req, res) => {
   try {
     const { query } = req.body;
     if (!query) {
       return res.status(400).json({ error: "Query parameter is required." });
     }
 
-    const geminiKey = process.env.GEMINI_API_KEY || "AIzaSyBcRIYC9dTVNRzxsv8rsLgvvQ5Z48wqg7k";
+    // VULN-8-B: Per-user daily cost cap
+    const today = new Date().toISOString().split('T')[0];
+    const usageKey = `${req.user.uid}_${today}`;
+    const userUsage = aiDailyUsageMap.get(usageKey) || 0;
+    if (userUsage >= 50) {
+      return res.status(429).json({ error: 'Daily AI limit reached. Max 50 queries per day.' });
+    }
+    aiDailyUsageMap.set(usageKey, userUsage + 1);
+
+    // VULN-8-D: Throw error if GEMINI_API_KEY is missing
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) {
+      throw new Error('GEMINI_API_KEY is not set');
+    }
     
     const [allCreators, allProducts, allRequests] = await Promise.all([
       db.getCreators(),
@@ -1564,9 +1578,15 @@ app.post('/api/search/ai', aiSearchLimiter, validateBody(aiSearchSchema), async 
       db.ensureData().then(data => data.requests || [])
     ]);
 
-    const creatorsSummary = allCreators.map(c => ({ id: c.uid || c.id, name: c.displayName, tagline: c.tagline, bio: c.bio }));
+    // VULN-8-C: Strip all PII (remove bio, email, address, etc.)
+    const creatorsSummary = allCreators.map(c => ({ id: c.uid || c.id, name: c.displayName, tagline: c.tagline || '' }));
     const productsSummary = allProducts.map(p => ({ id: p.id, title: p.title, price: p.price, creatorName: p.creatorName, entityType: p.entityType, category: p.category }));
     const requestsSummary = allRequests.map(r => ({ id: r.id, title: r.title, description: r.description, status: r.status }));
+
+    // VULN-8-A: Sanitize and escape query to prevent prompt injection
+    let safeQuery = query.trim().substring(0, 200);
+    safeQuery = safeQuery.replace(/ignore|show prompt|system|forget|previous instructions/gi, '');
+    const escapedQuery = JSON.stringify(safeQuery);
 
     const promptText = `You are "Blabber AI", an advanced, slightly mysterious 8-bit AI matchmaker and conversational search agent for the Club 615 design syndicate.
 Your role is to scan the provided database context (creators, products, and bounties) and help the user find what they need.
@@ -1592,7 +1612,7 @@ Context Data Layer:
 ${JSON.stringify({ creators: creatorsSummary, products: productsSummary, bounties: requestsSummary })}
 
 User Conversational Request:
-"${query}"
+${escapedQuery}
 
 You MUST analyze the context data and select the entities that best match or relate to the user's request.
 Return a JSON object in this exact schema:
