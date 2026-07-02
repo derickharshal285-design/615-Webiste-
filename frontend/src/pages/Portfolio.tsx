@@ -1774,6 +1774,10 @@ export default function Portfolio() {
                                 onChange={async (e) => {
                                   const file = e.target.files?.[0];
                                   if (file) {
+                                    if (file.size > 5 * 1024 * 1024) {
+                                      alert("File too large. Max 5 MB.");
+                                      return;
+                                    }
                                     try {
                                       const base64Str = await compressImage(file, 300, 0.6);
                                       handleUpdateActiveBlock({ logoImg: base64Str });
@@ -1821,6 +1825,10 @@ export default function Portfolio() {
                                 onChange={async (e) => {
                                   const file = e.target.files?.[0];
                                   if (file) {
+                                    if (file.size > 5 * 1024 * 1024) {
+                                      alert("File too large. Max 5 MB.");
+                                      return;
+                                    }
                                     try {
                                       const base64Str = await compressImage(file, 1200, 0.6);
                                       handleUpdateActiveBlock({ bgImg: base64Str });
