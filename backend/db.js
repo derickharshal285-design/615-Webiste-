@@ -28,29 +28,30 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables');
 }
 
-export function redactPII(val) {
-  if (!val) return val;
-  if (typeof val === 'string') {
-    let sanitized = val.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
+export function redactPII(obj) {
+  const sensitive = ['password', 'token', 'authorization', 'cookie', 'secret', 'key', 'email', 'salt', 'passwordhash', 'phone', 'address'];
+  if (!obj) return obj;
+  if (typeof obj === 'string') {
+    let sanitized = obj.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
     sanitized = sanitized.replace(/Bearer\s+[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/gi, 'Bearer [REDACTED_TOKEN]');
     sanitized = sanitized.replace(/AIzaSy[A-Za-z0-9_-]{33}/g, '[REDACTED_API_KEY]');
     return sanitized;
   }
-  if (Array.isArray(val)) {
-    return val.map(item => redactPII(item));
+  if (Array.isArray(obj)) {
+    return obj.map(item => redactPII(item));
   }
-  if (typeof val === 'object') {
-    const copy = {};
-    for (const key of Object.keys(val)) {
-      if (['email', 'password', 'token', 'secret', 'salt', 'passwordhash', 'phone', 'address', 'authorization'].includes(key.toLowerCase())) {
-        copy[key] = '[REDACTED]';
+  if (typeof obj === 'object') {
+    const cleaned = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (sensitive.some(s => k.toLowerCase().includes(s))) {
+        cleaned[k] = '[REDACTED]';
       } else {
-        copy[key] = redactPII(val[key]);
+        cleaned[k] = redactPII(v);
       }
     }
-    return copy;
+    return cleaned;
   }
-  return val;
+  return obj;
 }
 
 class SupabaseDatabase {

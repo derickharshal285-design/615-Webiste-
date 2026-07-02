@@ -5,13 +5,19 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import csrf from 'csurf';
-import { db } from './db.js';
+import { db, redactPII } from './db.js';
 import { hashPassword, verifyPassword, signToken, authenticateToken, requireAuth, requireAdmin, requireCreator, requireSelf, blacklistToken } from './auth.js';
 import { validateBody, firebaseAuthSchema, swapIdentitySchema, legacyRegisterSchema, legacyLoginSchema, createProductSchema, createOrderSchema, updateOrderStatusSchema, createRequestSchema, updateRequestStatusSchema, createBidSchema, createReviewSchema, updateProfileSchema, updateWishlistSchema, updateCartSchema, updatePortfolioSchema, overrideRoleSchema, checkUsernameSchema, followSchema, createApplicationSchema, updateApplicationStatusSchema, createMessageSchema, createChatSchema, submitScoreSchema, aiSearchSchema, createLogSchema, updateLogStatusSchema } from './validators.js';
 import { OAuth2Client } from 'google-auth-library';
 import { kv } from '@vercel/kv';
 import multer from 'multer';
 import path from 'path';
+
+// VULN-11-C: Globally redact sensitive data (PII, tokens, keys) from console logs
+const originalLog = console.log;
+const originalError = console.error;
+console.log = (...args) => originalLog(...args.map(arg => redactPII(arg)));
+console.error = (...args) => originalError(...args.map(arg => redactPII(arg)));
 
 // Load environment variables
 dotenv.config();
@@ -228,7 +234,8 @@ app.post('/api/auth/register', authLimiter, validateBody(legacyRegisterSchema), 
       return res.status(400).json({ error: "An account with this email already exists." });
     }
 
-    const { salt, hash } = hashPassword(password);
+    const hash = await hashPassword(password);
+    const salt = "";
     const uid = `user-${Date.now()}`;
     
     const newUser = {
@@ -281,12 +288,12 @@ app.post('/api/auth/login', authLimiter, validateBody(legacyLoginSchema), async 
     
     // Constant time validation fallback to prevent user enumeration via timing attacks
     const dummySalt = '00000000000000000000000000000000';
-    const dummyHash = '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
+    const dummyHash = '$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$dGVzdGhhc2g';
     
     const targetSalt = (user && user.salt) ? user.salt : dummySalt;
     const targetHash = (user && user.passwordHash) ? user.passwordHash : dummyHash;
     
-    const isValid = verifyPassword(password, targetSalt, targetHash);
+    const isValid = await verifyPassword(password, targetSalt, targetHash);
     if (!user || !isValid) {
       return res.status(400).json({ error: "Invalid email or password." });
     }
@@ -372,12 +379,13 @@ app.post('/api/auth/change-password', requireAuth, writeLimiter, async (req, res
       return res.status(404).json({ error: "User or login configuration not found." });
     }
     
-    const isValid = verifyPassword(currentPassword, user.salt, user.passwordHash);
+    const isValid = await verifyPassword(currentPassword, user.salt, user.passwordHash);
     if (!isValid) {
       return res.status(400).json({ error: "Invalid current password." });
     }
     
-    const { salt, hash } = hashPassword(newPassword);
+    const hash = await hashPassword(newPassword);
+    const salt = "";
     const success = await db.updateUserPassword(req.user.uid, salt, hash);
     if (success) {
       res.json({ success: true, message: "Password updated successfully." });

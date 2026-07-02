@@ -3,25 +3,41 @@ import crypto from 'crypto';
 import { db } from './db.js';
 import { verifyCredentials } from '@supabase/server/core';
 import { kv } from '@vercel/kv';
+import argon2 from 'argon2';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.length < 64) {
   throw new Error('JWT_SECRET must be at least 64 characters');
 }
 
-// Hash password using native PBKDF2 with 600,000 iterations
-export function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 600000, 64, 'sha512').toString('hex');
-  return { salt, hash };
+// Critical #1: Hash password using Argon2id
+export async function hashPassword(password) {
+  return await argon2.hash(password, {
+    type: argon2.argon2id,
+    timeCost: 3,
+    memoryCost: 65536,  // 64 MB
+    parallelism: 1,
+  });
 }
 
-// Verify password supporting both new 600k iterations and legacy 1000 iterations fallback
-export function verifyPassword(password, salt, hash) {
-  const verifyHashNew = crypto.pbkdf2Sync(password, salt, 600000, 64, 'sha512').toString('hex');
-  if (hash === verifyHashNew) return true;
-  const verifyHashOld = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return hash === verifyHashOld;
+// Critical #1: Verify password with Argon2id and fallback to legacy PBKDF2 (1000 iterations)
+export async function verifyPassword(password, salt, storedHash) {
+  try {
+    // If the stored hash looks like an Argon2 hash, verify it directly
+    if (storedHash && storedHash.startsWith('$argon2')) {
+      return await argon2.verify(storedHash, password);
+    }
+  } catch (err) {
+    // Fallback in case verification throws on bad input formats
+  }
+
+  // Fallback to legacy PBKDF2
+  try {
+    const verifyHashOld = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+    return storedHash === verifyHashOld;
+  } catch (err) {
+    return false;
+  }
 }
 
 export function signToken(payload, expiresIn = '1h') {
@@ -36,11 +52,12 @@ export function signToken(payload, expiresIn = '1h') {
 
 const tokenBlacklist = new Set();
 
-export async function blacklistToken(token) {
+// Critical #2: KV-backed token blacklist
+export async function blacklistToken(token, ttlSeconds = 3600) {
   if (!token) return;
   try {
     if (process.env.KV_REST_API_URL) {
-      await kv.set(`blacklist:${token}`, '1', { ex: 3600 });
+      await kv.set(`blacklist:${token}`, '1', { ex: ttlSeconds });
     }
   } catch (err) {
     console.error('[AUTH] Failed to write to Vercel KV blacklist:', err.message);
@@ -49,9 +66,10 @@ export async function blacklistToken(token) {
   tokenBlacklist.add(token);
   setTimeout(() => {
     tokenBlacklist.delete(token);
-  }, 60 * 60 * 1000);
+  }, ttlSeconds * 1000);
 }
 
+// Critical #2: Check Vercel KV token blacklist
 export async function isTokenBlacklisted(token) {
   if (!token) return false;
   if (tokenBlacklist.has(token)) return true;
@@ -66,7 +84,9 @@ export async function isTokenBlacklisted(token) {
   return false;
 }
 
-export function verifyToken(token) {
+// Critical #2: Update verifyToken to be async
+export async function verifyToken(token) {
+  if (await isTokenBlacklisted(token)) return null;
   try {
     return jwt.verify(token, JWT_SECRET, {
       algorithms: ['HS256'],
@@ -87,30 +107,23 @@ export async function authenticateToken(req, res, next) {
     req.user = null;
     return next();
   }
-
-  // Check token blacklist
-  if (await isTokenBlacklisted(token)) {
-    req.user = null;
-    return next();
-  }
   
   let uid = null;
-  const decoded = verifyToken(token);
+  const decoded = await verifyToken(token);
   
   if (decoded) {
     uid = decoded.uid;
   } else {
-    // Fallback: Verify as a direct Supabase JWT token using @supabase/server
+    // Critical #3: Stop email derivation, use canonical Supabase token verification
     try {
-      const apikey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      const { data, error } = await verifyCredentials({ token, apikey }, { auth: 'user' });
-      if (data?.user?.id) {
-        uid = `user-${data.user.id}`;
-      } else if (data?.userClaims?.sub) {
-        uid = data.userClaims.sub;
+      if (db.supabase) {
+        const { data, error } = await db.supabase.auth.getUser(token);
+        if (!error && data?.user?.id) {
+          uid = `user-${data.user.id}`;
+        }
       }
     } catch (err) {
-      console.error("[AUTH] Supabase server token verification error:", err.message);
+      console.error("[AUTH] Supabase token verification error:", err.message);
     }
   }
   
