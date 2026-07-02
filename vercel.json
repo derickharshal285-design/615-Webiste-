@@ -40,7 +40,7 @@
       }
     },
     {
-      "source": "/((?!api/|assets/|manifest\\.webmanifest|sw\\.js|workbox-).*)/?",
+      "source": "/:path*",
       "destination": "/index.html"
     }
   ],
