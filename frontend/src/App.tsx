@@ -8,7 +8,6 @@ import CustomRequests from "./pages/CustomRequests";
 import Freelancers from "./pages/Freelancers";
 import Portfolio from "./pages/Portfolio";
 import Admin from "./pages/Admin";
-import SplashIntro from "./components/SplashIntro";
 import Terminal from "./pages/Terminal";
 import Wishlist from "./pages/Wishlist";
 import Cart from "./pages/Cart";
@@ -58,20 +57,15 @@ function AuthenticatedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const [showIntro, setShowIntro] = useState(() => {
-    return window.location.pathname !== '/connect';
-  });
-
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <NotificationProvider>
           <BrowserRouter>
             <ScrollToTop />
-        {showIntro && <SplashIntro onComplete={() => setShowIntro(false)} />}
-        <div className={`flex flex-col min-h-screen bg-background text-foreground dark ${showIntro ? 'h-screen overflow-hidden' : ''}`}>
+        <div className="flex flex-col min-h-screen bg-background text-foreground dark">
           <Navbar />
-          {!showIntro && <GhostAssistant />}
+          <GhostAssistant />
           <main className="flex-grow">
             <ErrorBoundary>
               <Routes>
