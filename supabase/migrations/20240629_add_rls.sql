@@ -1,0 +1,148 @@
+-- Migration: Add Row Level Security (RLS) policies
+-- Date: 2024-06-29
+
+-- =========================================================================
+-- SECTION 1: Active Database Schema (json_store)
+-- =========================================================================
+
+-- The current application architecture stores all relational data (users,
+-- products, orders, requests) inside a single JSON document in the `json_store`
+-- table, and access is mediated via the backend server using the Service Role.
+--
+-- To secure this, we enable RLS on `json_store` so that anonymous or standard
+-- authenticated client-side requests cannot read or write to it directly. Only 
+-- the backend (using the service_role key, which bypasses RLS) is permitted.
+
+ALTER TABLE public.json_store ENABLE ROW LEVEL SECURITY;
+
+-- If RLS is enabled on public.json_store and no policies are created,
+-- all direct client-side (anon/authenticated) SELECT/INSERT/UPDATE/DELETE 
+-- operations will be rejected by default. The service role key will still bypass.
+
+
+-- =========================================================================
+-- SECTION 2: Relational Schema Reference & Policy Templates
+-- =========================================================================
+-- If you transition the database to a traditional relational schema (splitting
+-- the JSON blob into separate tables), the following SQL enables RLS and defines
+-- the policies to restrict access based on user ownership and public read-only views.
+
+-- ---------------------------------------------------------
+-- 1. Profiles Table
+-- ---------------------------------------------------------
+-- CREATE TABLE public.profiles (
+--   id uuid REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+--   display_name text,
+--   tagline text,
+--   bio text,
+--   role text DEFAULT 'buyer'
+-- );
+--
+-- ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+--
+-- -- Profiles are publicly readable
+-- CREATE POLICY "Public profiles are readable by everyone" 
+--   ON public.profiles FOR SELECT 
+--   USING (true);
+--
+-- -- Users can only update their own profile
+-- CREATE POLICY "Users can update their own profile" 
+--   ON public.profiles FOR UPDATE 
+--   USING (auth.uid() = id)
+--   WITH CHECK (auth.uid() = id);
+
+
+-- ---------------------------------------------------------
+-- 2. Products Table (Gigs)
+-- ---------------------------------------------------------
+-- CREATE TABLE public.products (
+--   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+--   creator_id uuid REFERENCES public.profiles(id) ON DELETE CASCADE,
+--   title text NOT NULL,
+--   price numeric NOT NULL,
+--   description text,
+--   entity_type text
+-- );
+--
+-- ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+--
+-- -- Products are publicly readable (anon and authenticated users)
+-- CREATE POLICY "Products are publicly readable" 
+--   ON public.products FOR SELECT 
+--   USING (true);
+--
+-- -- Only the creator can insert products
+-- CREATE POLICY "Creators can insert their own products" 
+--   ON public.products FOR INSERT 
+--   WITH CHECK (auth.uid() = creator_id);
+--
+-- -- Only the creator can update or delete their products
+-- CREATE POLICY "Creators can update their own products" 
+--   ON public.products FOR UPDATE 
+--   USING (auth.uid() = creator_id)
+--   WITH CHECK (auth.uid() = creator_id);
+--
+-- CREATE POLICY "Creators can delete their own products" 
+--   ON public.products FOR DELETE 
+--   USING (auth.uid() = creator_id);
+
+
+-- ---------------------------------------------------------
+-- 3. Orders Table
+-- ---------------------------------------------------------
+-- CREATE TABLE public.orders (
+--   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+--   buyer_id uuid REFERENCES public.profiles(id),
+--   creator_id uuid REFERENCES public.profiles(id),
+--   product_id uuid REFERENCES public.products(id),
+--   price numeric NOT NULL,
+--   status text NOT NULL
+-- );
+--
+-- ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+--
+-- -- Buyers and Creators involved in the order can view it
+-- CREATE POLICY "Users can view orders they are involved in" 
+--   ON public.orders FOR SELECT 
+--   USING (auth.uid() = buyer_id OR auth.uid() = creator_id);
+--
+-- -- Buyers can place orders (inserts)
+-- CREATE POLICY "Buyers can place orders" 
+--   ON public.orders FOR INSERT 
+--   WITH CHECK (auth.uid() = buyer_id);
+--
+-- -- Creators or buyers can update order statuses (status transitions)
+-- CREATE POLICY "Involved parties can update order status" 
+--   ON public.orders FOR UPDATE 
+--   USING (auth.uid() = buyer_id OR auth.uid() = creator_id)
+--   WITH CHECK (auth.uid() = buyer_id OR auth.uid() = creator_id);
+
+
+-- ---------------------------------------------------------
+-- 4. Chat Messages Table
+-- ---------------------------------------------------------
+-- CREATE TABLE public.messages (
+--   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+--   sender_id uuid REFERENCES public.profiles(id),
+--   chat_id uuid NOT NULL,
+--   content text NOT NULL,
+--   created_at timestamptz DEFAULT now()
+-- );
+--
+-- ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+--
+-- -- Users can view messages in chats they participate in
+-- CREATE POLICY "Users can view messages in their chats" 
+--   ON public.messages FOR SELECT 
+--   USING (
+--     EXISTS (
+--       SELECT 1 FROM public.chats 
+--       WHERE public.chats.id = chat_id 
+--       AND auth.uid() = ANY(public.chats.participants)
+--     )
+--   );
+--
+-- -- Users can send messages as themselves
+-- CREATE POLICY "Users can send messages as themselves" 
+--   ON public.messages FOR INSERT 
+--   WITH CHECK (auth.uid() = sender_id);

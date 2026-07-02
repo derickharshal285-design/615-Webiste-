@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper Functions
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return request.auth != null && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId);
+      
+      match /wishlist/default {
+        allow read, write: if isOwner(userId);
+      }
+      match /savedPosters/{posterId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Products (Vault & Bazaar)
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update: if isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['creator', 'admin'])
+      );
+    }
+
+    // Creators
+    match /creators/{userId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Requests (The Forge)
+    match /requests/{requestId} {
+      allow read: if isSignedIn() && (isOwner(existing().viewerId) || isOwner(existing().creatorId));
+      allow create: if isSignedIn() && isOwner(incoming().viewerId);
+      allow update: if isSignedIn() && (isOwner(existing().viewerId) || isOwner(existing().creatorId));
+    }
+
+    // Orders (Fulfillment)
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && (isOwner(existing().userId) || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['admin'])));
+      allow create: if isSignedIn() && isOwner(incoming().userId);
+      allow update: if isSignedIn() && (isOwner(existing().userId) || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['admin'])));
+    }
+
+    // Follows
+    match /follows/{followId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isOwner(incoming().followerId);
+      allow delete: if isSignedIn() && isOwner(existing().followerId);
+    }
+
+    // Portfolios
+    match /portfolios/{userId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Bounties (Job Bidding)
+    match /bounties/{bountyId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isOwner(incoming().clientId);
+      allow update: if isSignedIn() && (isOwner(existing().clientId) || isOwner(existing().awardedCreatorId) || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['admin'])));
+      allow delete: if isSignedIn() && isOwner(existing().clientId);
+      
+      // Bids subcollection
+      match /bids/{bidId} {
+        allow read: if isSignedIn() && (isOwner(get(/databases/$(database)/documents/bounties/$(bountyId)).data.clientId) || isOwner(existing().creatorId));
+        allow create: if isSignedIn() && isOwner(incoming().creatorId) && (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['creator', 'admin']));
+        allow update: if isSignedIn() && (isOwner(existing().creatorId) || isOwner(get(/databases/$(database)/documents/bounties/$(bountyId)).data.clientId));
+        allow delete: if isSignedIn() && isOwner(existing().creatorId);
+      }
+    }
+
+    // Chats (Comms Array)
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && request.auth.uid in request.resource.data.participants;
+      allow update: if isSignedIn() && request.auth.uid in resource.data.participants;
+      
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants && request.resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    // Leaderboards
+    match /leaderboards/{docId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+    }
+  }
+}

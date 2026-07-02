@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with roles and collections",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "roles": { "type": "array", "items": { "type": "string" }, "default": ["viewer"] },
+        "followingCount": { "type": "number", "default": 0 },
+        "followerCount": { "type": "number", "default": 0 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Poster or Bazaar item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "entityType": { "type": "string", "enum": ["Poster", "BazaarItem"] },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "price", "creatorId", "entityType"]
+    },
+    "CreatorProfile": {
+      "title": "Creator Profile",
+      "description": "Extended profile for creators",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "bio": { "type": "string" },
+        "portfolio": { "type": "array", "items": { "type": "object" } },
+        "blogPosts": { "type": "array", "items": { "type": "object" } },
+        "hireLink": { "type": "string" },
+        "tier": { "type": "number", "default": 1 }
+      },
+      "required": ["uid"]
+    },
+    "CustomRequest": {
+      "title": "Custom Request",
+      "description": "Custom work request in The Forge",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "viewerId": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Accepted", "Printing", "Completed", "Cancelled"] },
+        "specs": { "type": "object" },
+        "artworkUrl": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["viewerId", "creatorId", "status"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Amazon-style fulfillment order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "object" } },
+        "total": { "type": "number" },
+        "status": { "type": "string", "enum": ["Payment_Pending", "Order_Confirmed", "Printing_Processing", "Dispatched", "Out_for_Delivery", "Delivered"] },
+        "trackingHistory": { "type": "array", "items": { "type": "object" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "items", "status"]
+    },
+    "Wishlist": {
+      "title": "Wishlist",
+      "description": "Saved items for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "object" } },
+        "isPublic": { "type": "boolean", "default": false }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "Core user profiles" },
+    "/users/{uid}/wishlist/default": { "schema": "Wishlist", "description": "Persistent wishlist" },
+    "/users/{uid}/savedPosters/{posterId}": { "schema": "Product", "description": "Specific saved posters" },
+    "/products/{productId}": { "schema": "Product", "description": "Vault and Bazaar items" },
+    "/creators/{uid}": { "schema": "CreatorProfile", "description": "Detailed creator profiles" },
+    "/requests/{requestId}": { "schema": "CustomRequest", "description": "Forge requests" },
+    "/orders/{orderId}": { "schema": "Order", "description": "Fulfillment tracking" },
+    "/follows/{followId}": { "schema": "object", "description": "Follow relationships (followerId, followedId)" }
+  }
+}

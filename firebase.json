@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "databaseId": "default",
+    "rules": "firestore.rules"
+  }
+}

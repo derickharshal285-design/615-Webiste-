@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#09090b" />
+  <text x="256" y="220" font-family="'Anton', sans-serif" font-size="90" font-weight="900" letter-spacing="4" text-anchor="middle">
+    <tspan fill="#f0f4e6">C</tspan>
+    <tspan fill="#3dbca1">L</tspan>
+    <tspan fill="#ef3836">U</tspan>
+    <tspan fill="#f0f4e6">B</tspan>
+  </text>
+  <text x="256" y="400" font-family="'Anton', sans-serif" font-size="220" font-weight="900" letter-spacing="-8" text-anchor="middle" fill="none" stroke="#fcaf3e" stroke-width="12">615</text>
+</svg>
