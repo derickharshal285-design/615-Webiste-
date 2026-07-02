@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Target } from 'lucide-react';
 
-export default function IntroDoor() {
+export default function IntroDoor({ onComplete }: { onComplete?: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isRemoved, setIsRemoved] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -29,6 +29,7 @@ export default function IntroDoor() {
           // Completely remove it from DOM after the fade out transition (1.5s)
           setTimeout(() => {
             setIsRemoved(true);
+            if (onComplete) onComplete();
           }, 1500);
           return;
         }

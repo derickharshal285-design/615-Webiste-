@@ -9,6 +9,7 @@ import Freelancers from "./pages/Freelancers";
 import Portfolio from "./pages/Portfolio";
 import Admin from "./pages/Admin";
 import Terminal from "./pages/Terminal";
+import IntroDoor from "./components/IntroDoor";
 import Wishlist from "./pages/Wishlist";
 import Cart from "./pages/Cart";
 import DeveloperDashboard from "./pages/DeveloperDashboard";
@@ -57,14 +58,17 @@ function AuthenticatedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const [introCompleted, setIntroCompleted] = useState(false);
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <NotificationProvider>
           <BrowserRouter>
             <ScrollToTop />
-        <div className="flex flex-col min-h-screen bg-background text-foreground dark">
-          <Navbar />
+            {!introCompleted && <IntroDoor onComplete={() => setIntroCompleted(true)} />}
+            <div className="flex flex-col min-h-screen bg-background text-foreground dark">
+              <Navbar />
           <GhostAssistant />
           <main className="flex-grow">
             <ErrorBoundary>

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Users, Palette, Gamepad2, Zap, BookOpen, ShoppingCart, Disc, Music } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import LoreTimeline from '../components/LoreTimeline';
-import IntroDoor from '../components/IntroDoor';
 
 export default function Home() {
   const [activeTrack, setActiveTrack] = useState<number | null>(null);
@@ -143,9 +142,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden flex flex-col font-sans relative selection:bg-[#ef3836] selection:text-white pb-20 lg:pb-0">
-      
-      {/* 615 DOOR INTRO ANIMATION */}
-      <IntroDoor />
       
       {/* GLOBAL STYLES FOR ANIMATIONS */}
       <style>{`
